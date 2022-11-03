@@ -31,3 +31,4 @@ kubeconfig.*
 kindconfig.*
 kind
 lagoon-charts.*
+scans/

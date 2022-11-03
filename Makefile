@@ -64,12 +64,8 @@ DOCKER_DRIVER := $(shell docker info -f '{{.Driver}}')
 BRANCH_NAME := $(shell git rev-parse --abbrev-ref HEAD)
 SAFE_BRANCH_NAME := $(shell echo $(BRANCH_NAME) | sed -E 's/[^[:alnum:]_.-]//g' | cut -c 1-128)
 
-# Skip image scanning by default to make building images substantially faster
-SCAN_IMAGES := false
-
 # Init the file that is used to hold the image tag cross-reference table
 $(shell >build.txt)
-$(shell >scan.txt)
 
 #######
 ####### Functions
@@ -78,14 +74,6 @@ $(shell >scan.txt)
 # Builds a docker image. Expects as arguments: name of the image, location of Dockerfile, path of
 # Docker Build Context
 docker_build = DOCKER_SCAN_SUGGEST=false docker build $(DOCKER_BUILD_PARAMS) --build-arg LAGOON_VERSION=$(LAGOON_VERSION) --build-arg IMAGE_REPO=$(CI_BUILD_TAG) --build-arg UPSTREAM_REPO=$(UPSTREAM_REPO) --build-arg UPSTREAM_TAG=$(UPSTREAM_TAG) -t $(CI_BUILD_TAG)/$(1) -f $(2) $(3)
-
-scan_cmd = docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v $(HOME)/Library/Caches:/root/.cache/ aquasec/trivy --timeout 5m0s $(CI_BUILD_TAG)/$(1) >> scan.txt
-
-ifeq ($(SCAN_IMAGES),true)
-	scan_image = $(scan_cmd)
-else
-	scan_image =
-endif
 
 # Tags an image with the `testlagoon` repository and pushes it
 docker_publish_testlagoon = docker tag $(CI_BUILD_TAG)/$(1) testlagoon/$(2) && docker push testlagoon/$(2) | cat
@@ -97,7 +85,6 @@ docker_publish_uselagoon = docker tag $(CI_BUILD_TAG)/$(1) uselagoon/$(2) && doc
 docker_pull:
 	docker images --format "{{.Repository}}:{{.Tag}}" | grep -E '$(UPSTREAM_REPO)' | grep -E '$(UPSTREAM_TAG)' | xargs -tn1 -P8 docker pull -q || true;
 	grep -Eh 'FROM' $$(find . -type f -name *Dockerfile) | grep -Ev '_REPO|_VERSION|_CACHE' | awk '{print $$2}' | sort --unique | xargs -tn1 -P8 docker pull -q
-
 
 #######
 ####### Service Images
@@ -111,7 +98,6 @@ build-images += yarn-workspace-builder
 build/yarn-workspace-builder: yarn-workspace-builder/Dockerfile
 	$(eval image = $(subst build/,,$@))
 	$(call docker_build,$(image),$(image)/Dockerfile,.)
-	$(call scan_image,$(image),)
 	touch $@
 
 #######
@@ -135,7 +121,6 @@ build-taskimages = $(foreach image,$(taskimages),build/task-$(image))
 $(build-taskimages):
 	$(eval image = $(subst build/task-,,$@))
 	$(call docker_build,task-$(image),taskimages/$(image)/Dockerfile,taskimages/$(image))
-	$(call scan_image,task-$(image),)
 	touch $@
 
 # Variables of service images we manage and build
@@ -164,7 +149,6 @@ build-services = $(foreach image,$(services),build/$(image))
 $(build-services):
 	$(eval image = $(subst build/,,$@))
 	$(call docker_build,$(image),services/$(image)/Dockerfile,services/$(image))
-	$(call scan_image,$(image),)
 	touch $@
 
 # Dependencies of Service Images
@@ -183,7 +167,6 @@ build/local-minio:
 build/ssh: services/ssh/Dockerfile
 	$(eval image = $(subst build/,,$@))
 	$(call docker_build,$(image),services/$(image)/Dockerfile,.)
-	$(call scan_image,$(image),)
 	touch $@
 service-images += ssh
 
@@ -208,14 +191,12 @@ $(build-localdevimages):
 	$(eval folder = $(subst build/local-,,$@))
 	$(eval image = $(subst build/,,$@))
 	$(call docker_build,$(image),local-dev/$(folder)/Dockerfile,local-dev/$(folder))
-	$(call scan_image,$(image),)
 	touch $@
 
 # Image with ansible test
 build/tests:
 	$(eval image = $(subst build/,,$@))
 	$(call docker_build,$(image),$(image)/Dockerfile,$(image))
-	$(call scan_image,$(image),)
 	touch $@
 service-images += tests
 
@@ -228,7 +209,7 @@ s3-images += $(service-images)
 
 # Builds all Images
 .PHONY: build
-build: $(foreach image,$(base-images) $(service-images) $(task-images),build/$(image))
+build: $(foreach image,$(service-images) $(task-images),build/$(image))
 # Outputs a list of all Images we manage
 .PHONY: build-list
 build-list:
@@ -287,22 +268,6 @@ broker-up: build/broker-single
 ####### All main&PR images are pushed to testlagoon repository
 #######
 
-# Publish command to testlagoon docker hub, done on any main branch or PR
-publish-testlagoon-baseimages = $(foreach image,$(base-images),[publish-testlagoon-baseimages]-$(image))
-# tag and push all images
-
-.PHONY: publish-testlagoon-baseimages
-publish-testlagoon-baseimages: $(publish-testlagoon-baseimages)
-
-# tag and push of each image
-.PHONY: $(publish-testlagoon-baseimages)
-$(publish-testlagoon-baseimages):
-#   Calling docker_publish for image, but remove the prefix '[publish-testlagoon-baseimages]-' first
-		$(eval image = $(subst [publish-testlagoon-baseimages]-,,$@))
-# 	Publish images with version tag
-		$(call docker_publish_testlagoon,$(image),$(image):$(BRANCH_NAME))
-
-
 # Publish command to amazeeio docker hub, this should only be done during main deployments
 publish-testlagoon-serviceimages = $(foreach image,$(service-images),[publish-testlagoon-serviceimages]-$(image))
 # tag and push all images
@@ -336,24 +301,6 @@ $(publish-testlagoon-taskimages):
 #######
 ####### All tagged releases are pushed to uselagoon repository with new semantic tags
 #######
-
-# Publish command to uselagoon docker hub, only done on tags
-publish-uselagoon-baseimages = $(foreach image,$(base-images),[publish-uselagoon-baseimages]-$(image))
-
-# tag and push all images
-.PHONY: publish-uselagoon-baseimages
-publish-uselagoon-baseimages: $(publish-uselagoon-baseimages)
-
-# tag and push of each image
-.PHONY: $(publish-uselagoon-baseimages)
-$(publish-uselagoon-baseimages):
-#   Calling docker_publish for image, but remove the prefix '[publish-uselagoon-baseimages]-' first
-		$(eval image = $(subst [publish-uselagoon-baseimages]-,,$@))
-# 	Publish images as :latest
-		$(call docker_publish_uselagoon,$(image),$(image):latest)
-# 	Publish images with version tag
-		$(call docker_publish_uselagoon,$(image),$(image):$(LAGOON_VERSION))
-
 
 # Publish command to amazeeio docker hub, this should only be done during main deployments
 publish-uselagoon-serviceimages = $(foreach image,$(service-images),[publish-uselagoon-serviceimages]-$(image))
@@ -398,7 +345,7 @@ clean:
 scan-images:
 	mkdir -p ./scans
 	rm -f ./scans/*.txt
-	@for tag in $(foreach image,$(base-images) $(service-images) $(task-images),$(image)); do \
+	@for tag in $(foreach image,$(build-images) $(service-images) $(task-images),$(image)); do \
 			docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v $(HOME)/Library/Caches:/root/.cache/ aquasec/trivy image --timeout 5m0s $(CI_BUILD_TAG)/$$tag > ./scans/$$tag.trivy.txt ; \
 			docker run --rm -v /var/run/docker.sock:/var/run/docker.sock anchore/syft $(CI_BUILD_TAG)/$$tag > ./scans/$$tag.syft.txt ; \
 			docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v $(HOME)/Library/Caches:/var/lib/grype/db anchore/grype $(CI_BUILD_TAG)/$$tag > ./scans/$$tag.grype.txt ; \
