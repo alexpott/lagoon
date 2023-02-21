@@ -443,7 +443,7 @@ STERN_VERSION = 2.1.20
 CHART_TESTING_VERSION = v3.7.1
 K3D_IMAGE = docker.io/rancher/k3s:v1.24.9-k3s1
 TESTS = [nginx,api,features-kubernetes,bulk-deployment,features-kubernetes-2,features-variables,active-standby-kubernetes,tasks,drush,python,gitlab,github,bitbucket,services,workflows]
-CHARTS_TREEISH = helm_dep_updates
+CHARTS_TREEISH = helm_dep_update
 TASK_IMAGES = task-activestandby
 
 # Symlink the installed kubectl client if the correct version is already
