@@ -1,6 +1,4 @@
-ARG UPSTREAM_REPO
-ARG UPSTREAM_TAG
-FROM ${UPSTREAM_REPO:-uselagoon}/python-3.10:${UPSTREAM_TAG:-latest}
+FROM docker:20.10.24-alpine3.17
 
 RUN apk add --no-cache \
       bash \
@@ -10,6 +8,7 @@ RUN apk add --no-cache \
       jq \
       moreutils \
       openssh-client \
+      py3-pip \
       rsync
 
 ENV CRYPTOGRAPHY_DONT_BUILD_RUST=1
