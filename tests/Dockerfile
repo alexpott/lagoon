@@ -43,7 +43,8 @@ ENV ANSIBLE_FORCE_COLOR=true \
     KEYCLOAK_URL=http://keycloak:8080 \
     JWTSECRET=super-secret-string \
     JWTAUDIENCE=api.dev \
-    JWTUSER=test-suite
+    JWTUSER=test-suite \
+    DOCKER_HOST=docker-host.lagoon.svc
 
 COPY entrypoint.sh /
 ENTRYPOINT ["/entrypoint.sh"]
