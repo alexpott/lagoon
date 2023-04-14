@@ -6,9 +6,9 @@
   args:
     chdir: /ansible/files/{{ docker_files }}
 
-- name: "{{ testname }} - Docker tag images for {{ project }}"
+- name: "{{ testname }} - Docker Compose pull images for {{ project }}"
   shell: >
-    for FULL_IMAGE in $(docker image ls --format '{{\.Repository}}:{{\.Tag}}' | grep -E '^uselagoon/' | grep -v none);
+    for FULL_IMAGE in $(docker-compose config | awk '{if ($1 == "image:") print $2;}');
     do docker tag ${FULL_IMAGE} imagecache.amazeeio.cloud/${FULL_IMAGE} | cat;
     done
   ignore_errors: yes
